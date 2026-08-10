@@ -1,0 +1,46 @@
+# AI-powered tagging plugin for the Accent CMS component runtime.
+#
+# Built with `cargo-component`, which compiles this crate to a WebAssembly
+# Component-Model component implementing the `networked-api-plugin` world from
+# the Accent plugin WIT contract (`wit/`): the `/api/llm/*` route handlers, the
+# `format_tags` template filter, and outbound HTTP to the configured LLM
+# provider (granted structurally because the world imports `outbound-http`).
+#
+# An empty `[workspace]` detaches the plugin from the parent Cargo workspace so
+# its toolchain and lockfile stay independent.
+[workspace]
+
+[package]
+name = "llm-tagging"
+version = "0.1.0"
+edition = "2021"
+description = "AI-powered document tagging and lead generation plugin for Accent CMS"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Runtime support for the bindings cargo-component generates from `wit/`. The
+# typed records (request/response, filter-input, the `json` arena) replace the
+# hand-written JSON envelope structs the Extism version carried.
+wit-bindgen-rt = { version = "0.44.0", features = ["bitflags"] }
+# Route bodies and LLM responses are JSON; these stay for the request/response
+# wire types and the LLM-response parsing.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Selects which WIT world this component implements.
+[package.metadata.component]
+package = "accent:plugin"
+
+[package.metadata.component.target]
+path = "wit"
+world = "networked-api-plugin"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

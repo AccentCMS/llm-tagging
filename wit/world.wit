@@ -1,0 +1,22 @@
+// The world this plugin implements.
+//
+// Part of the `accent:plugin` package declared in `types.wit`. A world's
+// imports ARE its capability grant. This plugin imports the three
+// always-granted host capabilities (`config`, `logging`, `environment`) plus
+// `outbound-http` -- the network capability is present ONLY because this world
+// imports it, which is what lets the route handlers call out to the configured
+// LLM provider (Anthropic / OpenAI / Ollama). It exports the route handler
+// (the `/api/llm/*` endpoints) and the template filter (`format_tags`).
+//
+// This is the `networked-api-plugin` world from the full Accent plugin
+// contract (`wit/worlds.wit`); the vendored interface files alongside it
+// (`types.wit`/`host.wit`/`content.wit`/`routes.wit`) are byte-identical to
+// the canonical contract.
+world networked-api-plugin {
+    import config;
+    import logging;
+    import environment;
+    import outbound-http;
+    export routes;
+    export filters;
+}

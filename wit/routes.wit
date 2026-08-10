@@ -1,0 +1,38 @@
+// Custom HTTP route handler surface (`handle_route`).
+//
+// Feature f201, Epic E034. Mirrors the f025c route surface. A plugin claims
+// route paths in the manifest `[routes]` table; the host dispatches matching
+// requests to `handle`. Bodies are UTF-8 text, matching today's contract; a
+// route plugin that needs outbound HTTP additionally imports `outbound-http`
+// (see the `networked-route-plugin` world).
+
+/// HTTP route handling for paths the plugin claims in its manifest.
+interface routes {
+    /// An incoming HTTP request routed to the plugin.
+    record request {
+        /// HTTP method (e.g. "GET", "POST").
+        method: string,
+        /// Request path (e.g. "/contact-submit").
+        path: string,
+        /// Query string including the leading `?`, or empty.
+        query: string,
+        /// Request headers, key order preserved.
+        headers: list<tuple<string, string>>,
+        /// Request body (empty for GET).
+        body: string,
+    }
+
+    /// The plugin's HTTP response.
+    record response {
+        /// HTTP status code (e.g. 200, 302, 404).
+        status: u16,
+        /// Response headers.
+        headers: list<tuple<string, string>>,
+        /// Response body.
+        body: string,
+    }
+
+    /// Handle one request. An `err` is logged and surfaced as a 500-class
+    /// failure, matching today's behaviour.
+    handle: func(req: request) -> result<response, string>;
+}

@@ -1,0 +1,87 @@
+# LLM Tagging Plugin Configuration
+# Feature f026a: AI-powered document tagging and lead generation (Phase 1)
+
+[plugin]
+name = "llm-tagging"
+version = "0.1.0"
+api_version = "0.1.0"
+description = "AI-powered document tagging and lead generation using LLM providers"
+allowed_hosts = [
+    "api.anthropic.com",
+    "api.openai.com",
+    "localhost",
+]
+
+# No content hooks: LLM API calls take 2-30 seconds and the synchronous render
+# path would block, so analysis is triggered via the route handlers instead.
+# (The component's `networked-api-plugin` world exports no content-hooks
+# interface; a page-load hook returns when hooks can run async -- E034
+# post-parity.)
+
+# Custom API routes (Feature f025c).
+[routes]
+"/api/llm/analyze" = "POST"
+"/api/llm/batch" = "POST"
+"/api/llm/taxonomy" = "GET"
+
+# Template filters (Feature f025c).
+# Usage: {{ page.tags | format_tags }}
+# The value names the WIT export that handles the filter; on the component
+# contract every filter is dispatched through the single `filters::apply`
+# export, keyed on the filter name.
+[filters]
+format_tags = "apply"
+
+# LLM Provider Configuration
+[config.provider]
+# Provider type: "anthropic" | "openai" | "ollama"
+type = "anthropic"
+# Environment variable containing the API key (never store keys in config)
+api_key_env = "LLM_API_KEY"
+# Model to use for analysis
+model = "claude-3-haiku-20240307"
+# Custom API endpoint (optional, for self-hosted or compatible APIs)
+base_url = ""
+# Request timeout in seconds
+timeout_seconds = 30
+
+# Tag Generation Settings
+[config.tags]
+enabled = true
+max_tags = 8
+min_tags = 3
+# Tag formatting style: "lowercase-hyphen", "lowercase", "title-case"
+style = "lowercase-hyphen"
+# Predefined tags to prefer (helps maintain consistency)
+preferred_tags = [
+    "rust",
+    "web-development",
+    "cms",
+    "markdown",
+    "tutorial",
+    "guide",
+    "news",
+    "release",
+]
+# Tags to never generate
+blocked_tags = [
+    "article",
+    "post",
+    "content",
+    "page",
+]
+
+# Lead/Summary Generation Settings
+[config.lead]
+enabled = true
+max_length = 200
+min_length = 50
+# Writing style: "informative", "engaging", "technical", "casual"
+style = "informative"
+
+# Workflow Settings
+[config.workflow]
+# Auto-analyze on page load (disabled by default - too slow for sync hooks)
+auto_analyze = false
+# Skip analysis if tags/lead already exist in frontmatter
+skip_if_exists = true

@@ -1,0 +1,94 @@
+// Host capabilities (the imports a plugin world may reach).
+//
+// Feature f201, Epic E034. Capabilities are STRUCTURAL: a plugin can reach
+// only what its world imports (a010 6.3). `config`, `logging`, and
+// `environment` are Accent-specific host functions with no WASI equivalent
+// and are always granted. `outbound-http` is deny-by-default and granted only
+// when the manifest opts in; see wit/README.md for the full capability mapping.
+//
+// Feature f204 re-grounds the scoped-filesystem capability on the WASI
+// standard (`wasi:filesystem`, see wit/deps/), so the custom `filesystem`
+// interface that lived here is gone: a plugin that needs files imports
+// `wasi:filesystem/{preopens,types}` and uses its language's standard file
+// API confined to the host-mapped preopens. Outbound HTTP stays on the custom
+// `outbound-http` interface as a sync-first interim; it moves to
+// `wasi:http/outgoing-handler` (same allowlist) when the epic flips
+// `Config::concurrency_support` on (the post-parity async step).
+
+/// Read-only access to the merged plugin configuration (plugin.toml
+/// `[config]` defaults < `config.yaml` overrides < host auto-injects).
+/// Capability: `config`. Always granted. Replaces Extism `config::get`.
+interface config {
+    /// Get a single config value by key. Values are strings, matching the
+    /// host's merged-config map exactly (config.yaml and plugin.toml values
+    /// are stringified on the way in).
+    get: func(key: string) -> option<string>;
+
+    /// Get the entire merged config map. Entries are sorted by key for a
+    /// deterministic, reproducible order.
+    get-all: func() -> list<tuple<string, string>>;
+}
+
+/// Structured host logging at a named severity. Capability: `logging`.
+/// Always granted. Replaces Extism's log host function.
+interface logging {
+    use types.{log-level};
+
+    log: func(level: log-level, message: string);
+}
+
+/// Read-only host runtime context. Capability: `environment`. Always
+/// granted. Replaces the `host` field the Extism system injects into every
+/// hook payload.
+interface environment {
+    use types.{host-context};
+
+    get-context: func() -> host-context;
+}
+
+/// Outbound HTTP, restricted to the hosts the manifest declares in
+/// `allowed-hosts`. Capability: `outbound-http`. DENY BY DEFAULT -- a world
+/// that does not import this interface cannot make network calls, and a
+/// request to an undeclared host fails with `host-not-allowed`.
+///
+/// Provisional: a later capability-providers feature routes this through the standard
+/// `wasi:http/outgoing-handler` with the same allowlist semantics. This
+/// custom shape keeps the Phase 1 contract self-contained (no vendored WASI
+/// packages) while still expressing the capability structurally.
+interface outbound-http {
+    /// An outbound HTTP request.
+    record http-request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    }
+
+    /// The host's HTTP response.
+    record http-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// Why an outbound request failed.
+    variant http-error {
+        /// The URL's host is not in the manifest `allowed-hosts` allowlist.
+        host-not-allowed(string),
+        /// The request was malformed (bad URL, header, etc.).
+        invalid-request(string),
+        /// Transport-level failure (DNS, TLS, connection, timeout).
+        transport(string),
+    }
+
+    fetch: func(req: http-request) -> result<http-response, http-error>;
+}
+
+// Scoped filesystem access is the WASI standard `wasi:filesystem` (vendored
+// under wit/deps/, imported by the worlds that need it). DENY BY DEFAULT --
+// granted only when the manifest sets `requires-fs`, the host maps
+// `allowed-paths`, AND the server role permits it (the `publisher` role blocks
+// FS to keep the content tree from drifting from git, f141b / B015). The host
+// installs the host-mapped `allowed-paths` as WASI preopened directories
+// (read-only when the host path is prefixed `ro:`); a guest with no grant gets
+// no preopens and so cannot reach the host filesystem at all. Feature f204.

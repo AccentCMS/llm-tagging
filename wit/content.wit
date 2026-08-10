@@ -1,0 +1,69 @@
+// Render-pipeline guest surfaces: content hooks, template filters, and
+// shortcodes. All run synchronously, per request, on the render path.
+//
+// Feature f201, Epic E034. Mirrors the f025b content hooks and the f025c
+// filter/shortcode surfaces. Config and host context arrive through the
+// imported `config` / `environment` capabilities rather than being threaded
+// into each call, which keeps these signatures focused on the data the hook
+// actually transforms.
+
+/// Content-pipeline lifecycle hooks. A plugin transforms the content and
+/// returns it; an `err` is logged and the previous content in the chain is
+/// preserved, matching today's graceful skip-on-error behaviour.
+interface content-hooks {
+    /// Input to a content hook.
+    record content-input {
+        /// Content to transform: raw markdown for `on-page-load`, rendered
+        /// HTML for `on-render`.
+        content: string,
+        /// URL path of the page being processed (e.g. "/blog/my-post").
+        page-path: string,
+    }
+
+    /// Fired before markdown rendering. Transforms raw markdown.
+    on-page-load: func(input: content-input) -> result<string, string>;
+
+    /// Fired after rendering. Transforms the final HTML.
+    on-render: func(input: content-input) -> result<string, string>;
+}
+
+/// Template filters: `{{ value | my_filter(args...) }}`. A plugin may
+/// register several filter names (manifest `[filters]`); the host dispatches
+/// by `filter-name`. An `err` surfaces as a MiniJinja filter error.
+interface filters {
+    use types.{json};
+
+    record filter-input {
+        /// Filter name as used in the template.
+        filter-name: string,
+        /// The piped value (left side of `|`).
+        value: json,
+        /// Additional positional arguments.
+        args: list<json>,
+    }
+
+    apply: func(input: filter-input) -> result<json, string>;
+}
+
+/// Shortcodes: `[name arg="..."]body[/name]`. The host dispatches by `name`
+/// (manifest `[shortcodes]`) and substitutes the returned HTML.
+///
+/// Today shortcode registration is declarative -- the registry records which
+/// plugin owns a code, but the live Extism system does not yet dispatch a
+/// dedicated WASM export for it. This interface models the typed export the
+/// component runtime will call, closing that parity gap.
+interface shortcodes {
+    record shortcode-input {
+        /// Shortcode name (e.g. "note").
+        name: string,
+        /// Attributes parsed from the opening tag (string-valued, as in the
+        /// markup), key order preserved.
+        args: list<tuple<string, string>>,
+        /// Inner body between opening and closing tags, when present.
+        body: option<string>,
+        /// URL path of the page the shortcode appears on.
+        page-path: string,
+    }
+
+    render: func(input: shortcode-input) -> result<string, string>;
+}

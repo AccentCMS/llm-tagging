@@ -1,0 +1,70 @@
+// Shared types for the Accent plugin contract.
+//
+// Feature f201, Epic E034. This is the runtime-independent WIT contract
+// designed "on paper" against the live Extism system (a010 6). It does not
+// yet drive the runtime -- the Wasmtime binding layer that consumes it lands
+// in f202/f203. The contract is the source of truth; the executor becomes
+// generated bindings, not hand-written JSON marshalling.
+
+package accent:plugin@0.1.0;
+
+/// Types shared across every plugin surface and host capability.
+interface types {
+    /// A dynamically-typed JSON value, used wherever the data shape is
+    /// inherently open -- page frontmatter, template-filter values, model
+    /// defaults, and media metadata.
+    ///
+    /// It is encoded as a flat arena of nodes rather than a recursive variant
+    /// because WIT forbids type cycles. Node 0 is the root; `array` and
+    /// `object` cases reference their children by index into `nodes`. This
+    /// keeps dynamic data fully typed -- no JSON-string blob crosses the
+    /// boundary -- while still admitting arbitrary nesting. Guest toolchains
+    /// wrap this with ergonomic builders/readers; an empty `nodes` list
+    /// denotes the absence of a value.
+    record json {
+        nodes: list<json-node>,
+    }
+
+    /// One node in a `json` arena. JSON numbers map to `integer` when they
+    /// fit a signed 64-bit value, otherwise `float`.
+    variant json-node {
+        /// JSON `null`.
+        null-value,
+        /// JSON boolean.
+        boolean(bool),
+        /// JSON integer.
+        integer(s64),
+        /// JSON number with a fractional part.
+        float(f64),
+        /// JSON string.
+        text(string),
+        /// JSON array: child node indices, in order.
+        array(list<u32>),
+        /// JSON object: key -> child node index, key order preserved.
+        object(list<tuple<string, u32>>),
+    }
+
+    /// Host runtime context, surfaced to every guest through the
+    /// `environment` capability. Mirrors the context the Extism system
+    /// injects into each hook payload today (the host context).
+    record host-context {
+        /// True under `--production` or in `build` mode.
+        production: bool,
+        /// True when `dev.debug` is enabled.
+        debug: bool,
+        /// Site name (`site.name`).
+        site-name: string,
+        /// Site base URL (`site.url`).
+        site-url: string,
+        /// Primary site language (`site.language`, e.g. "en").
+        language: string,
+    }
+
+    /// Severity for host logging.
+    enum log-level {
+        debug,
+        info,
+        warn,
+        error,
+    }
+}

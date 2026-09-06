@@ -1,48 +1,32 @@
 // Shared types for the Accent plugin contract.
 //
-// Feature f201, Epic E034. This is the runtime-independent WIT contract
-// designed "on paper" against the live Extism system (a010 6). It does not
-// yet drive the runtime -- the Wasmtime binding layer that consumes it lands
-// in f202/f203. The contract is the source of truth; the executor becomes
-// generated bindings, not hand-written JSON marshalling.
+// Feature f201, Epic E034: the runtime-independent WIT contract every plugin
+// surface and host capability is generated from. The contract is the source
+// of truth on both sides -- `wasmtime::component::bindgen!` on the host,
+// `cargo-component` / `jco` in a guest.
+//
+// Feature f341, Epic E042 (plugin API 0.2.0): the one open-shaped value,
+// `json`, became UTF-8 bytes. The 0.1 generation carried it as a flat arena
+// of nodes (`record json { nodes: list<json-node> }`); that generation is
+// retired, and a component built against it is refused by the host's API
+// floor with a remedy.
 
-package accent:plugin@0.1.0;
+package accent:plugin@0.2.0;
 
 /// Types shared across every plugin surface and host capability.
 interface types {
-    /// A dynamically-typed JSON value, used wherever the data shape is
-    /// inherently open -- page frontmatter, template-filter values, model
-    /// defaults, and media metadata.
+    /// One UTF-8 JSON document. Used wherever the data shape is open:
+    /// frontmatter, filter values, model defaults, media metadata, data-store
+    /// values. An empty list denotes the absence of a value.
     ///
-    /// It is encoded as a flat arena of nodes rather than a recursive variant
-    /// because WIT forbids type cycles. Node 0 is the root; `array` and
-    /// `object` cases reference their children by index into `nodes`. This
-    /// keeps dynamic data fully typed -- no JSON-string blob crosses the
-    /// boundary -- while still admitting arbitrary nesting. Guest toolchains
-    /// wrap this with ergonomic builders/readers; an empty `nodes` list
-    /// denotes the absence of a value.
-    record json {
-        nodes: list<json-node>,
-    }
-
-    /// One node in a `json` arena. JSON numbers map to `integer` when they
-    /// fit a signed 64-bit value, otherwise `float`.
-    variant json-node {
-        /// JSON `null`.
-        null-value,
-        /// JSON boolean.
-        boolean(bool),
-        /// JSON integer.
-        integer(s64),
-        /// JSON number with a fractional part.
-        float(f64),
-        /// JSON string.
-        text(string),
-        /// JSON array: child node indices, in order.
-        array(list<u32>),
-        /// JSON object: key -> child node index, key order preserved.
-        object(list<tuple<string, u32>>),
-    }
+    /// Typed records stay typed; only this open value crosses the boundary as
+    /// bytes, because WIT forbids the recursive variant a JSON value would
+    /// otherwise need. A Rust guest reads it with `serde_json::from_slice`
+    /// and writes it with `serde_json::to_vec`; a JS guest decodes the bytes
+    /// as UTF-8 and calls `JSON.parse`. The host refuses a non-empty payload
+    /// that is not a valid JSON document, and decodes at most 128 levels of
+    /// nesting.
+    type json = list<u8>;
 
     /// Host runtime context, surfaced to every guest through the
     /// `environment` capability. Mirrors the context the Extism system

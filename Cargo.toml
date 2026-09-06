@@ -12,7 +12,9 @@
 
 [package]
 name = "llm-tagging"
-version = "0.1.0"
+# Kept in step with `[plugin] version` in plugin.toml, which is what the
+# packaged manifest carries. The rebuild on plugin API 0.2.0 ships as 0.2.0.
+version = "0.2.0"
 edition = "2021"
 description = "AI-powered document tagging and lead generation plugin for Accent CMS"
 publish = false
@@ -22,7 +24,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Runtime support for the bindings cargo-component generates from `wit/`. The
-# typed records (request/response, filter-input, the `json` arena) replace the
+# typed records (request/response, filter-input, the `json` bytes) replace the
 # hand-written JSON envelope structs the Extism version carried.
 wit-bindgen-rt = { version = "0.44.0", features = ["bitflags"] }
 # Route bodies and LLM responses are JSON; these stay for the request/response

@@ -3,8 +3,12 @@
 
 [plugin]
 name = "llm-tagging"
-version = "0.1.0"
-api_version = "0.1.0"
+# 0.2.0 is the 0.1.0 plugin rebuilt on plugin API 0.2.0: `format_tags` reads
+# its value as JSON bytes instead of walking the retired arena. A host on that
+# API refuses the 0.1.0 build, and this is the version `accent plugin update
+# llm-tagging` fetches instead.
+version = "0.2.0"
+api_version = "0.2.0"
 description = "AI-powered document tagging and lead generation using LLM providers"
 allowed_hosts = [
     "api.anthropic.com",

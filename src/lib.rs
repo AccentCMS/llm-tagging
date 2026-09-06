@@ -33,7 +33,7 @@ use serde_json::json;
 use config::PluginConfig;
 use types::*;
 
-use bindings::accent::plugin::types::{Json, JsonNode};
+use bindings::accent::plugin::types::Json;
 use bindings::exports::accent::plugin::filters::{FilterInput, Guest as Filters};
 use bindings::exports::accent::plugin::routes::{Guest as Routes, Request, Response};
 
@@ -230,7 +230,7 @@ impl Filters for Component {
     /// The host dispatches by `filter-name`; this plugin owns `format_tags`.
     fn apply(input: FilterInput) -> Result<Json, String> {
         match input.filter_name.as_str() {
-            "format_tags" => Ok(format_tags(&input.value, &input.args)),
+            "format_tags" => format_tags(&input.value, &input.args),
             other => Err(format!("unknown filter: {other}")),
         }
     }
@@ -238,40 +238,38 @@ impl Filters for Component {
 
 /// Format a tags array for display: join an array of strings (or pass a string
 /// through unchanged). Default separator is ", "; an optional first argument
-/// overrides it. Operates on the `json` arena directly and returns a text node.
-fn format_tags(value: &Json, args: &[Json]) -> Json {
-    let separator = args
-        .first()
-        .and_then(arena_root_text)
-        .unwrap_or_else(|| ", ".to_string());
+/// overrides it. The `json` payloads are UTF-8 JSON documents (plugin API
+/// 0.2.0), read as `serde_json::Value` and answered as a JSON string.
+fn format_tags(value: &[u8], args: &[Json]) -> Result<Json, String> {
+    let value = decode_json(value)?;
+    let separator = match args.first() {
+        Some(arg) => decode_json(arg)?
+            .as_str()
+            .map_or_else(|| ", ".to_string(), str::to_owned),
+        None => ", ".to_string(),
+    };
 
-    let formatted = match value.nodes.first() {
-        Some(JsonNode::Array(indices)) => {
-            let tags: Vec<String> = indices
-                .iter()
-                .filter_map(|&i| value.nodes.get(i as usize))
-                .filter_map(|node| match node {
-                    JsonNode::Text(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .collect();
-            tags.join(&separator)
-        }
-        Some(JsonNode::Text(s)) => s.clone(),
+    let formatted = match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>()
+            .join(&separator),
+        serde_json::Value::String(s) => s,
         _ => String::new(),
     };
 
-    Json {
-        nodes: vec![JsonNode::Text(formatted)],
-    }
+    serde_json::to_vec(&serde_json::Value::String(formatted))
+        .map_err(|e| format!("failed to encode filter result: {e}"))
 }
 
-/// Read the root node of a `json` arena as a string, if it is a text node.
-fn arena_root_text(value: &Json) -> Option<String> {
-    match value.nodes.first() {
-        Some(JsonNode::Text(s)) => Some(s.clone()),
-        _ => None,
+/// Decode a `json` payload. The empty payload is the contract's "no value"
+/// and reads as `null`; anything else must be one JSON document.
+fn decode_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Null);
     }
+    serde_json::from_slice(bytes).map_err(|e| format!("filter input is not valid JSON: {e}"))
 }
 
 // ---------------------------------------------------------------------------

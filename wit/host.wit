@@ -3,8 +3,9 @@
 // Feature f201, Epic E034. Capabilities are STRUCTURAL: a plugin can reach
 // only what its world imports (a010 6.3). `config`, `logging`, and
 // `environment` are Accent-specific host functions with no WASI equivalent
-// and are always granted. `outbound-http` is deny-by-default and granted only
-// when the manifest opts in; see wit/README.md for the full capability mapping.
+// and are always granted. `outbound-http` and `host-services` are
+// deny-by-default and granted only when the manifest opts in; see
+// wit/README.md for the full capability mapping.
 //
 // Feature f204 re-grounds the scoped-filesystem capability on the WASI
 // standard (`wasi:filesystem`, see wit/deps/), so the custom `filesystem`
@@ -16,8 +17,10 @@
 // `Config::concurrency_support` on (the post-parity async step).
 
 /// Read-only access to the merged plugin configuration (plugin.toml
-/// `[config]` defaults < `config.yaml` overrides < host auto-injects).
-/// Capability: `config`. Always granted. Replaces Extism `config::get`.
+/// `[config]` defaults < `config.yaml` overrides). Capability: `config`.
+/// Always granted. Nothing is auto-injected: the host used to add the bound
+/// `server_port` so a guest could call back over HTTP, and that went with the
+/// bridge below.
 interface config {
     /// Get a single config value by key. Values are strings, matching the
     /// host's merged-config map exactly (config.yaml and plugin.toml values
@@ -82,6 +85,77 @@ interface outbound-http {
     }
 
     fetch: func(req: http-request) -> result<http-response, http-error>;
+}
+
+/// Typed host services: SMTP mail send and the per-plugin data store.
+/// Capability: `host-services`. DENY BY DEFAULT twice over -- structurally (a
+/// world that does not import this interface cannot reach any host service)
+/// and per service (the manifest must opt in with
+/// `host-services = ["mail", "data"]`; a call outside the declared scopes
+/// fails with `not-permitted`).
+///
+/// The host knows which plugin is calling: the data-store namespace is derived
+/// from the plugin's identity, never taken from the payload, so one plugin
+/// cannot name -- let alone read or overwrite -- another plugin's data. It also
+/// needs no bound listener, so it works under `accent build` and CLI contexts.
+///
+/// This replaced an HTTP-to-self bridge (`/_internal/smtp/send`,
+/// `/_internal/data/*` reached over `outbound-http`), since removed: that
+/// bridge authorised on "the caller is loopback" alone and took the namespace
+/// from the request body.
+interface host-services {
+    use types.{json};
+
+    /// An outbound email message, sent through the host's configured SMTP
+    /// service (`smtp` in config.yaml). The sender address and transport are
+    /// the host's; a plugin only supplies the content.
+    record mail {
+        /// Recipient addresses (at least one).
+        to: list<string>,
+        /// Subject line.
+        subject: string,
+        /// Plain-text body.
+        body-text: string,
+        /// Optional HTML alternative body.
+        body-html: option<string>,
+    }
+
+    /// How `data-write` treats an existing value.
+    enum write-mode {
+        /// Replace the stored value entirely.
+        replace,
+        /// Append to a JSON array (created as `[value]` when absent).
+        append,
+    }
+
+    /// Why a host-service call failed.
+    variant host-error {
+        /// The manifest does not opt in to the service (`host-services`
+        /// scope missing). The payload names the missing scope.
+        not-permitted(string),
+        /// The service is not configured or not enabled on this host.
+        not-configured(string),
+        /// The request was malformed (invalid recipient, empty subject,
+        /// invalid key, append to non-array data).
+        invalid-request(string),
+        /// The service's rate limit was exceeded; retry later.
+        rate-limited(string),
+        /// Host-side failure (SMTP transport, data-store I/O).
+        internal(string),
+    }
+
+    /// Send an email. Requires the manifest scope `"mail"`.
+    send-mail: func(msg: mail) -> result<_, host-error>;
+
+    /// Write `value` under `key` in this plugin's own data-store namespace.
+    /// The namespace is the plugin's name, derived by the host -- there is no
+    /// way to address another plugin's data. Requires the manifest scope
+    /// `"data"`.
+    data-write: func(key: string, value: json, mode: write-mode) -> result<_, host-error>;
+
+    /// Read the value stored under `key` in this plugin's own namespace, or
+    /// none when the key does not exist. Requires the manifest scope `"data"`.
+    data-read: func(key: string) -> result<option<json>, host-error>;
 }
 
 // Scoped filesystem access is the WASI standard `wasi:filesystem` (vendored

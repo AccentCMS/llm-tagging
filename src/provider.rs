@@ -5,7 +5,7 @@
 //!
 //! - **Anthropic** (Messages API) - Claude models
 //! - **OpenAI** (Chat Completions API) - GPT models
-//! - **Ollama** (local) - self-hosted open-source models
+//! - **Ollama** - self-hosted open-source models, on a public address
 
 use serde_json::json;
 
@@ -139,14 +139,26 @@ fn call_openai(config: &ProviderConfig, api_key: &str, prompt: &str) -> Result<S
         .ok_or_else(|| "OpenAI response missing choices[0].message.content".to_string())
 }
 
-/// Call a local Ollama instance.
+/// Call an Ollama server.
+///
+/// `base_url` has no default. Ollama's usual address,
+/// `http://localhost:11434`, is one a plugin cannot reach: the host's
+/// outbound transport refuses every loopback and private address. The server
+/// must be on a public address that `allowed_hosts` in `plugin.toml` lists.
+///
+/// # Errors
+///
+/// Returns an error string when `base_url` is empty, the request fails, or
+/// the response cannot be parsed.
 fn call_ollama(config: &ProviderConfig, prompt: &str) -> Result<String, String> {
-    let base_url = if config.base_url.is_empty() {
-        "http://localhost:11434"
-    } else {
-        &config.base_url
-    };
-    let url = format!("{base_url}/api/generate");
+    if config.base_url.is_empty() {
+        return Err(
+            "Ollama needs `base_url` set to a public address that the plugin's \
+             `allowed_hosts` lists; a plugin cannot reach a server on localhost"
+                .to_string(),
+        );
+    }
+    let url = format!("{}/api/generate", config.base_url);
 
     let body = json!({
         "model": config.model,

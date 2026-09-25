@@ -6,14 +6,16 @@ name = "llm-tagging"
 # 0.2.0 is the 0.1.0 plugin rebuilt on plugin API 0.2.0: `format_tags` reads
 # its value as JSON bytes instead of walking the retired arena. A host on that
 # API refuses the 0.1.0 build, and this is the version `accent plugin update
-# llm-tagging` fetches instead.
-version = "0.2.0"
+# llm-tagging` fetches instead. 0.2.1 drops `localhost` from `allowed_hosts`.
+version = "0.2.1"
 api_version = "0.2.0"
 description = "AI-powered document tagging and lead generation using LLM providers"
+# No loopback entry: the host's outbound transport refuses every loopback
+# and private address whatever this list says, and warns at load when the
+# list names one. An Ollama server must be on a public address, added here.
 allowed_hosts = [
     "api.anthropic.com",
     "api.openai.com",
-    "localhost",
 ]
 
 # No content hooks: LLM API calls take 2-30 seconds and the synchronous render

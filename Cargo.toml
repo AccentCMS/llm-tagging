@@ -1,10 +1,11 @@
 # AI-powered tagging plugin for the Accent CMS component runtime.
 #
 # Built with `cargo-component`, which compiles this crate to a WebAssembly
-# Component-Model component implementing the `networked-api-plugin` world from
+# Component-Model component implementing the `model-api-plugin` world from
 # the Accent plugin WIT contract (`wit/`): the `/api/llm/*` route handlers, the
-# `format_tags` template filter, and outbound HTTP to the configured LLM
-# provider (granted structurally because the world imports `outbound-http`).
+# `format_tags` template filter, the host's model through `host-services`, and
+# outbound HTTP to a public LLM API (granted structurally because the world
+# imports both capabilities).
 #
 # An empty `[workspace]` detaches the plugin from the parent Cargo workspace so
 # its toolchain and lockfile stay independent.
@@ -14,7 +15,7 @@
 name = "llm-tagging"
 # Kept in step with `[plugin] version` in plugin.toml, which is what the
 # packaged manifest carries.
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "AI-powered document tagging and lead generation plugin for Accent CMS"
 publish = false
@@ -31,6 +32,10 @@ wit-bindgen-rt = { version = "0.44.0", features = ["bitflags"] }
 # wire types and the LLM-response parsing.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The host hands each `[config.<section>]` table to the plugin as an inline
+# TOML table (`{ type = "host", ... }`), so the plugin parses TOML to read its
+# own settings. Parsing only: no formatting or comment preservation.
+toml = { version = "1", default-features = false, features = ["std", "parse", "serde"] }
 
 # Selects which WIT world this component implements.
 [package.metadata.component]
@@ -38,7 +43,7 @@ package = "accent:plugin"
 
 [package.metadata.component.target]
 path = "wit"
-world = "networked-api-plugin"
+world = "model-api-plugin"
 
 [profile.release]
 opt-level = "s"

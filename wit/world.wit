@@ -2,21 +2,28 @@
 //
 // Part of the `accent:plugin` package declared in `types.wit`. A world's
 // imports ARE its capability grant. This plugin imports the three
-// always-granted host capabilities (`config`, `logging`, `environment`) plus
-// `outbound-http` -- the network capability is present ONLY because this world
-// imports it, which is what lets the route handlers call out to the configured
-// LLM provider (Anthropic / OpenAI / Ollama). It exports the route handler
-// (the `/api/llm/*` endpoints) and the template filter (`format_tags`).
+// always-granted host capabilities (`config`, `logging`, `environment`), plus:
 //
-// This is the `networked-api-plugin` world from the full Accent plugin
-// contract (`wit/worlds.wit`); the vendored interface files alongside it
+// - `host-services`, for the `host` provider: the host calls the operator's
+//   model (`plugins.model` in config.yaml) for the plugin. The plugin names no
+//   address, so the model can run on the same machine or the LAN. The
+//   manifest must also declare `host_services = ["model"]`.
+// - `outbound-http`, for the `anthropic`, `openai`, and `ollama` providers,
+//   which call a public API that `allowed_hosts` lists.
+//
+// It exports the route handler (the `/api/llm/*` endpoints) and the template
+// filter (`format_tags`).
+//
+// This is the `model-api-plugin` world from the full Accent plugin contract
+// (`wit/worlds.wit`); the vendored interface files alongside it
 // (`types.wit`/`host.wit`/`content.wit`/`routes.wit`) are byte-identical to
 // the canonical contract.
-world networked-api-plugin {
+world model-api-plugin {
     import config;
     import logging;
     import environment;
     import outbound-http;
+    import host-services;
     export routes;
     export filters;
 }

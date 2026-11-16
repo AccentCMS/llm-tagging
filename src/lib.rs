@@ -1,12 +1,13 @@
 //! LLM-powered document tagging and lead generation plugin, on the WebAssembly
 //! Component Model.
 //!
-//! Implements the `networked-api-plugin` world:
+//! Implements the `model-api-plugin` world:
 //!
 //! - `routes::handle` dispatches `POST /api/llm/analyze`, `POST /api/llm/batch`,
-//!   and `GET /api/llm/taxonomy`. Analysis routes call the configured LLM
-//!   provider (Anthropic / OpenAI / Ollama) through the `outbound-http`
-//!   capability.
+//!   and `GET /api/llm/taxonomy`. Analysis routes call the configured
+//!   provider: the host's model through the `host-services` capability
+//!   (`type = "host"`), or Anthropic / OpenAI / Ollama through the
+//!   `outbound-http` capability.
 //! - `filters::apply` provides the `format_tags` template filter.
 //!
 //! # Design Decisions
@@ -278,12 +279,17 @@ fn decode_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
 
 /// Load plugin configuration from the merged host config.
 ///
-/// As under Extism, the nested `[config]` sections are not surfaced under a
-/// single `config` key, so this resolves to `PluginConfig::default()` unless a
-/// host explicitly provides a `config` JSON blob.
+/// A `config` key with a JSON document wins, so that a setup that passed the
+/// whole configuration as one JSON value keeps working. Otherwise the plugin
+/// reads its `[config.<section>]` tables.
+// Bug b466: the plugin used to read only the JSON key, so the `plugin.toml`
+// settings had no effect and every run used the built-in defaults.
 fn load_config() -> Result<PluginConfig, String> {
-    let config_json = host::config_get("config").unwrap_or_else(|| "{}".to_string());
-    serde_json::from_str(&config_json).map_err(|e| format!("failed to parse plugin config: {e}"))
+    if let Some(config_json) = host::config_get("config") {
+        return serde_json::from_str(&config_json)
+            .map_err(|e| format!("failed to parse plugin config: {e}"));
+    }
+    config::from_sections(host::config_get)
 }
 
 /// Parse an LLM response as tag generation output, tolerating markdown fences.

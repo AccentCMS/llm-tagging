@@ -87,12 +87,12 @@ interface outbound-http {
     fetch: func(req: http-request) -> result<http-response, http-error>;
 }
 
-/// Typed host services: SMTP mail send and the per-plugin data store.
-/// Capability: `host-services`. DENY BY DEFAULT twice over -- structurally (a
-/// world that does not import this interface cannot reach any host service)
-/// and per service (the manifest must opt in with
-/// `host-services = ["mail", "data"]`; a call outside the declared scopes
-/// fails with `not-permitted`).
+/// Typed host services: SMTP mail send, the per-plugin data store, and a
+/// completion from the operator's model. Capability: `host-services`. DENY BY
+/// DEFAULT twice over -- structurally (a world that does not import this
+/// interface cannot reach any host service) and per service (the manifest
+/// must opt in with `host-services = ["mail", "data", "model"]`; a call
+/// outside the declared scopes fails with `not-permitted`).
 ///
 /// The host knows which plugin is calling: the data-store namespace is derived
 /// from the plugin's identity, never taken from the payload, so one plugin
@@ -130,8 +130,11 @@ interface host-services {
 
     /// Why a host-service call failed.
     variant host-error {
-        /// The manifest does not opt in to the service (`host-services`
-        /// scope missing). The payload names the missing scope.
+        /// The manifest does not opt in to the service: the payload is
+        /// exactly the scope (`"model"`). Or the call site may not use it:
+        /// the payload is the scope, a colon, and the reason (`"model: ..."`
+        /// for a model call that does not come from a route handler that the
+        /// host runs outside its registry lock).
         not-permitted(string),
         /// The service is not configured or not enabled on this host.
         not-configured(string),
@@ -156,6 +159,55 @@ interface host-services {
     /// Read the value stored under `key` in this plugin's own namespace, or
     /// none when the key does not exist. Requires the manifest scope `"data"`.
     data-read: func(key: string) -> result<option<json>, host-error>;
+
+    /// Who speaks a message in a model conversation.
+    enum model-role {
+        /// Instructions that frame the task.
+        system,
+        /// The request the model answers.
+        user,
+        /// An earlier model answer, for a multi-turn exchange.
+        assistant,
+    }
+
+    /// One message in a model conversation.
+    record model-message {
+        role: model-role,
+        content: string,
+    }
+
+    /// A completion request. The plugin supplies only the conversation: the
+    /// host owns the endpoint, the model, and the key (`plugins.model` in
+    /// config.yaml), so a plugin never names an address. This is why the
+    /// model can run on loopback or the LAN without a hole in the
+    /// `outbound-http` address guard.
+    record model-request {
+        /// The conversation, at least one `user` message.
+        messages: list<model-message>,
+        /// The answer's token limit. The host clamps it to the operator's
+        /// `max_tokens`; none means the operator's limit.
+        max-tokens: option<u32>,
+    }
+
+    /// The model's answer.
+    record model-response {
+        /// The answer text.
+        text: string,
+        /// Tokens in the prompt, as the provider reports them.
+        input-tokens: u32,
+        /// Tokens in the answer, as the provider reports them.
+        output-tokens: u32,
+    }
+
+    /// Run one completion on the operator's model. Requires the manifest
+    /// scope `"model"`, and only a route handler that the host runs for an
+    /// HTTP request can call it: a hook, filter, or shortcode runs while a
+    /// page renders, and a model call there gets `not-permitted`
+    /// (`"model: ..."`). Fails with `not-configured` when the host
+    /// has no `plugins.model`, `invalid-request` for an empty conversation,
+    /// `rate-limited` when the provider answers 429, and `internal` for a
+    /// transport failure or a timeout.
+    model-complete: func(req: model-request) -> result<model-response, host-error>;
 }
 
 // Scoped filesystem access is the WASI standard `wasi:filesystem` (vendored

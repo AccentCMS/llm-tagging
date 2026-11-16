@@ -1,16 +1,25 @@
 //! LLM provider abstraction for the tagging plugin.
 //!
-//! Makes outbound HTTP calls to LLM APIs through the host's `outbound-http`
-//! capability (see [`crate::host`]). Supports three provider backends:
+//! Supports four provider backends:
 //!
-//! - **Anthropic** (Messages API) - Claude models
-//! - **OpenAI** (Chat Completions API) - GPT models
-//! - **Ollama** - self-hosted open-source models, on a public address
+//! - **Host** - the operator's model, which the host calls through the
+//!   `host-services` capability (`plugins.model` in config.yaml). Use it for a
+//!   model on the same machine or the LAN, such as Ollama on
+//!   `localhost:11434`.
+//! - **Anthropic** (Messages API) - Claude models, over `outbound-http`
+//! - **OpenAI** (Chat Completions API) - GPT models, over `outbound-http`
+//! - **Ollama** - an Ollama server on a public address, over `outbound-http`
+//!
+//! See [`crate::host`] for the capability wrappers.
 
 use serde_json::json;
 
 use crate::config::ProviderConfig;
-use crate::host::{config_get, http_post_json};
+use crate::host::{config_get, host_model_complete, http_post_json};
+
+/// The answer limit the plugin asks for. The host clamps it to the
+/// operator's `plugins.model.max_tokens`.
+const MAX_ANSWER_TOKENS: u32 = 1024;
 
 /// Call an LLM provider with the given prompt and return the response text.
 ///
@@ -23,6 +32,10 @@ use crate::host::{config_get, http_post_json};
 /// Returns an error string if the provider type is unknown, the API key is
 /// missing or empty, the HTTP request fails, or the response cannot be parsed.
 pub fn call_llm(config: &ProviderConfig, prompt: &str) -> Result<String, String> {
+    // The host provider has no key: the host holds it.
+    if config.provider_type == "host" {
+        return host_model_complete(prompt, MAX_ANSWER_TOKENS);
+    }
     let api_key = config_get(&config.api_key_env).unwrap_or_default();
 
     match config.provider_type.as_str() {
@@ -141,10 +154,11 @@ fn call_openai(config: &ProviderConfig, api_key: &str, prompt: &str) -> Result<S
 
 /// Call an Ollama server.
 ///
-/// `base_url` has no default. Ollama's usual address,
-/// `http://localhost:11434`, is one a plugin cannot reach: the host's
-/// outbound transport refuses every loopback and private address. The server
-/// must be on a public address that `allowed_hosts` in `plugin.toml` lists.
+/// `base_url` has no default. This provider calls the server over
+/// `outbound-http`, which refuses every loopback and private address, so the
+/// server must be on a public address that `allowed_hosts` in `plugin.toml`
+/// lists. For Ollama on `localhost:11434` or the LAN, use the `host` provider
+/// and point `plugins.model` at Ollama's OpenAI-compatible endpoint.
 ///
 /// # Errors
 ///
@@ -154,7 +168,8 @@ fn call_ollama(config: &ProviderConfig, prompt: &str) -> Result<String, String> 
     if config.base_url.is_empty() {
         return Err(
             "Ollama needs `base_url` set to a public address that the plugin's \
-             `allowed_hosts` lists; a plugin cannot reach a server on localhost"
+             `allowed_hosts` lists. For Ollama on this machine or the LAN, set \
+             `type = \"host\"` and configure `plugins.model` in config.yaml"
                 .to_string(),
         );
     }

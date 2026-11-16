@@ -7,20 +7,31 @@ name = "llm-tagging"
 # its value as JSON bytes instead of walking the retired arena. A host on that
 # API refuses the 0.1.0 build, and this is the version `accent plugin update
 # llm-tagging` fetches instead. 0.2.1 drops `localhost` from `allowed_hosts`.
-version = "0.2.1"
+# 0.3.0 adds the `host` provider, which calls the operator's model through the
+# `model` host service, and needs a host that provides that service. The plugin
+# API version stays 0.2.0, because the service only adds to that API, so an
+# older host would accept this manifest and then fail to link the component.
+# Publish 0.3.0 to the hub with an `accent_version` floor of the first release
+# that has the service: the hub resolver refuses it on an older host, and that
+# host keeps 0.2.1.
+version = "0.3.0"
 api_version = "0.2.0"
 description = "AI-powered document tagging and lead generation using LLM providers"
 # No loopback entry: the host's outbound transport refuses every loopback
 # and private address whatever this list says, and warns at load when the
-# list names one. An Ollama server must be on a public address, added here.
+# list names one. For a model on this machine or the LAN, use the `host`
+# provider below; this list is only for the public-API providers.
 allowed_hosts = [
     "api.anthropic.com",
     "api.openai.com",
 ]
+# The `host` provider: the host calls the operator's model (`plugins.model`
+# in config.yaml) for this plugin. Without this scope, the call is refused.
+host_services = ["model"]
 
 # No content hooks: LLM API calls take 2-30 seconds and the synchronous render
 # path would block, so analysis is triggered via the route handlers instead.
-# (The component's `networked-api-plugin` world exports no content-hooks
+# (The component's `model-api-plugin` world exports no content-hooks
 # interface; a page-load hook returns when hooks can run async -- E034
 # post-parity.)
 
@@ -40,7 +51,10 @@ format_tags = "apply"
 
 # LLM Provider Configuration
 [config.provider]
-# Provider type: "anthropic" | "openai" | "ollama"
+# Provider type: "host" | "anthropic" | "openai" | "ollama"
+# "host" uses the operator's model from `plugins.model` in config.yaml. It
+# needs no key, model, or base_url here, and it can reach a model on
+# localhost or the LAN.
 type = "anthropic"
 # Environment variable containing the API key (never store keys in config)
 api_key_env = "LLM_API_KEY"

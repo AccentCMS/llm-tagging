@@ -1,10 +1,64 @@
 //! Plugin configuration parsing for the LLM tagging plugin (Feature f026a).
 //!
-//! Configuration is passed from the Accent CMS host as a JSON blob derived
-//! from the `[config]` section of `plugin.toml`. This module deserializes
-//! it into strongly-typed structures.
+//! The host merges the `[config.<section>]` tables of `plugin.toml` with the
+//! `plugins.config.llm-tagging` overrides in `config.yaml`, and serves each
+//! section as one key whose value is an inline TOML table, for example
+//! `provider` = `{ type = "host", model = "m" }`. [`from_sections`] reads
+//! those keys back into strongly-typed structures.
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
+
+/// Build the configuration from the per-section values that `get` returns.
+///
+/// Each section is read on its own, so an error names the section that is
+/// wrong. A missing section takes its defaults. The host merges an override
+/// in `config.yaml` into its section key by key, so a section here already
+/// holds both.
+///
+/// A bad `provider`, `tags`, or `lead` section is an error for every route,
+/// not its defaults. A config mistake must be loud, and each default can do
+/// harm: the default provider would send page content to an API that the
+/// operator did not choose, the default tag lists would drop the blocked
+/// tags, and the default `lead.enabled` is `true`, so a bad section that
+/// tried to turn summaries off would turn them on. A bad `workflow` section
+/// takes its defaults: no route reads it.
+///
+/// # Errors
+///
+/// An error string that names the `provider`, `tags`, or `lead` section
+/// when it is not a valid table (for example `provider: host` in
+/// `config.yaml`, a string where a table belongs) or has a key of the wrong
+/// type.
+// Bug b466
+pub fn from_sections(get: impl Fn(&str) -> Option<String>) -> Result<PluginConfig, String> {
+    Ok(PluginConfig {
+        provider: section(&get, "provider")?,
+        tags: section(&get, "tags")?,
+        lead: section(&get, "lead")?,
+        workflow: section(&get, "workflow").unwrap_or_default(),
+    })
+}
+
+/// One section, parsed from its inline-table value, or its defaults when the
+/// section is absent.
+fn section<T: DeserializeOwned + Default>(
+    get: &impl Fn(&str) -> Option<String>,
+    name: &str,
+) -> Result<T, String> {
+    /// The value under a fixed key, so that the section parses as a
+    /// one-line TOML document.
+    #[derive(Deserialize)]
+    struct One<T> {
+        v: T,
+    }
+    let Some(value) = get(name) else {
+        return Ok(T::default());
+    };
+    toml::from_str::<One<T>>(&format!("v = {value}"))
+        .map(|one| one.v)
+        .map_err(|e| format!("[config.{name}] is not a valid table: {e}"))
+}
 
 /// Top-level plugin configuration.
 #[derive(Debug, Default, Deserialize)]
@@ -34,7 +88,9 @@ pub struct PluginConfig {
 /// LLM provider configuration.
 #[derive(Debug, Deserialize)]
 pub struct ProviderConfig {
-    /// Provider type: "anthropic", "openai", or "ollama".
+    /// Provider type: "host", "anthropic", "openai", or "ollama". With
+    /// "host", the host owns the model, so `api_key_env`, `model`, and
+    /// `base_url` are not read.
     #[serde(default = "default_provider_type", rename = "type")]
     pub provider_type: String,
 
@@ -242,5 +298,55 @@ mod tests {
         assert_eq!(config.provider.model, "gpt-4");
         assert_eq!(config.tags.max_tags, 5);
         assert_eq!(config.tags.preferred_tags, vec!["rust", "web"]);
+    }
+
+    // Bug b466: the host serves each section as an inline TOML table.
+    #[test]
+    fn sections_from_the_host_are_read() {
+        let get = |key: &str| match key {
+            "provider" => Some(r#"{ model = "m", type = "host" }"#.to_string()),
+            "tags" => Some(r#"{ max_tags = 5, preferred_tags = ["rust", "web"] }"#.to_string()),
+            _ => None,
+        };
+        let config = from_sections(get).unwrap();
+        assert_eq!(config.provider.provider_type, "host");
+        assert_eq!(config.provider.model, "m");
+        assert_eq!(config.tags.max_tags, 5);
+        assert_eq!(config.tags.preferred_tags, vec!["rust", "web"]);
+        assert!(config.lead.enabled, "a missing section keeps its defaults");
+    }
+
+    #[test]
+    fn no_sections_give_the_defaults() {
+        let config = from_sections(|_| None).unwrap();
+        assert_eq!(config.provider.provider_type, "anthropic");
+    }
+
+    #[test]
+    fn a_bad_section_is_an_error_that_names_it() {
+        // `provider: host` in config.yaml arrives as the bare string `host`.
+        // Falling back to the default provider would send page content to
+        // an API that the operator did not choose.
+        let get = |key: &str| match key {
+            "provider" => Some("host".to_string()),
+            "tags" => Some("{ max_tags = 5 }".to_string()),
+            _ => None,
+        };
+        let err = from_sections(get).unwrap_err();
+        assert!(err.contains("[config.provider]"), "{err}");
+    }
+
+    #[test]
+    fn a_bad_lead_section_is_an_error() {
+        // A wrong-typed `enabled = "false"` must not turn summaries on.
+        let get = |key: &str| (key == "lead").then(|| r#"{ enabled = "false" }"#.to_string());
+        let err = from_sections(get).unwrap_err();
+        assert!(err.contains("[config.lead]"), "{err}");
+    }
+
+    #[test]
+    fn a_bad_workflow_section_takes_its_defaults() {
+        let get = |key: &str| (key == "workflow").then(|| "auto".to_string());
+        assert!(from_sections(get).is_ok());
     }
 }
